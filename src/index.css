@@ -1,0 +1,83 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    @apply bg-charcoal-950 text-charcoal-100 antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+  * { -webkit-tap-highlight-color: transparent; }
+  ::selection { @apply bg-chilli-600 text-white; }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg font-semibold transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97] select-none;
+  }
+  .btn-primary { @apply btn bg-chilli-600 text-white hover:bg-chilli-700 px-4 py-2.5 text-sm shadow-lg shadow-chilli-600/20; }
+  .btn-gold { @apply btn bg-gold-500 text-charcoal-950 hover:bg-gold-400 px-4 py-2.5 text-sm shadow-lg shadow-gold-500/20; }
+  .btn-ghost { @apply btn bg-charcoal-800 text-charcoal-200 hover:bg-charcoal-700 px-4 py-2.5 text-sm border border-charcoal-700; }
+  .btn-danger { @apply btn bg-red-600 text-white hover:bg-red-700 px-4 py-2.5 text-sm; }
+  .btn-sm { @apply px-3 py-1.5 text-xs; }
+  .btn-lg { @apply px-6 py-3.5 text-base; }
+  .btn-icon { @apply p-2 rounded-lg transition-colors; }
+
+  .input {
+    @apply w-full bg-charcoal-900 border border-charcoal-700 rounded-lg px-4 py-2.5 text-sm text-charcoal-100 placeholder-charcoal-500
+           focus:outline-none focus:border-chilli-500 focus:ring-1 focus:ring-chilli-500 transition-colors;
+  }
+  .input-sm { @apply px-3 py-1.5 text-xs; }
+
+  .card { @apply bg-charcoal-900 border border-charcoal-800 rounded-xl; }
+  .card-hover { @apply card hover:border-charcoal-700 transition-colors cursor-pointer; }
+
+  .label { @apply block text-xs font-semibold text-charcoal-400 uppercase tracking-wide mb-1.5; }
+
+  .badge { @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold; }
+  .badge-green { @apply badge bg-emerald-500/15 text-emerald-400; }
+  .badge-red { @apply badge bg-red-500/15 text-red-400; }
+  .badge-gold { @apply badge bg-gold-500/15 text-gold-400; }
+  .badge-blue { @apply badge bg-blue-500/15 text-blue-400; }
+  .badge-gray { @apply badge bg-charcoal-700 text-charcoal-300; }
+
+  .table-header { @apply text-left text-xs font-semibold text-charcoal-400 uppercase tracking-wide px-4 py-3; }
+  .table-cell { @apply px-4 py-3 text-sm text-charcoal-200; }
+  .table-row { @apply border-b border-charcoal-800 hover:bg-charcoal-800/50 transition-colors; }
+
+  .skeleton { @apply bg-charcoal-800 rounded animate-pulse; }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { @apply bg-charcoal-700 rounded-full; }
+::-webkit-scrollbar-thumb:hover { @apply bg-charcoal-600; }
+
+/* Hide scrollbar utility */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Print styles */
+@media print {
+  body * { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; }
+  .print-area { position: absolute; left: 0; top: 0; width: 100%; }
+  .no-print { display: none !important; }
+  @page { margin: 0; }
+}
+
+/* Thermal printer (80mm) */
+@media print {
+  .thermal-print { width: 80mm; padding: 4mm; font-family: 'Courier New', monospace; }
+  .thermal-print * { font-size: 12px !important; }
+  .thermal-print h1, .thermal-print h2 { font-size: 14px !important; }
+}
+
+/* A4 print */
+@media print {
+  .a4-print { width: 210mm; min-height: 297mm; padding: 15mm; margin: 0; }
+}
