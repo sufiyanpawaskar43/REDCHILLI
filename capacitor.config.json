@@ -1,0 +1,5 @@
+{
+  "appId": "com.redchilli.billing",
+  "appName": "redchilli-counter-billing",
+  "webDir": "dist"
+}

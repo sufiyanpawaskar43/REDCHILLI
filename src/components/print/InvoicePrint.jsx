@@ -1,145 +1,981 @@
+import {
+  formatCurrency,
+  formatDateTime,
+  orderTypeLabel,
+} from '@/utils/helpers';
 
-import { formatCurrency, formatDateTime, orderTypeLabel } from '@/utils/helpers';
+/* =========================================================
+   SAFE VALUE HELPERS
+   ========================================================= */
 
-function InvoiceHeader({ invoice, hotel }) {
-  const name = hotel?.hotel_name || invoice.hotel_name || 'RED CHILLI';
-  const address = hotel?.address || invoice.hotel_address || '';
-  const gst = hotel?.gst_number || invoice.hotel_gst || '';
+function numberValue(...values) {
+  for (const value of values) {
+    if (
+      value !== undefined &&
+      value !== null &&
+      value !== ''
+    ) {
+      const number = Number(value);
+
+      if (Number.isFinite(number)) {
+        return number;
+      }
+    }
+  }
+
+  return 0;
+}
+
+function getItemName(item) {
+  return (
+    item.item_name ??
+    item.item_name_snapshot ??
+    item.name ??
+    'Item'
+  );
+}
+
+function getVariantName(item) {
+  return (
+    item.variant_name ??
+    item.variant_name_snapshot ??
+    item.variant ??
+    ''
+  );
+}
+
+function getQuantity(item) {
+  return numberValue(
+    item.quantity,
+    item.qty,
+    1
+  );
+}
+
+function getUnitPrice(item) {
+  const quantity = getQuantity(item);
+
+  const directPrice = numberValue(
+    item.unit_price,
+    item.unit_price_snapshot,
+    item.price,
+    item.price_snapshot
+  );
+
+  if (directPrice > 0) {
+    return directPrice;
+  }
+
+  const lineTotal = numberValue(
+    item.line_total,
+    item.line_total_snapshot,
+    item.total,
+    item.amount
+  );
+
+  if (
+    lineTotal > 0 &&
+    quantity > 0
+  ) {
+    return lineTotal / quantity;
+  }
+
+  return 0;
+}
+
+function getLineTotal(item) {
+  const directTotal = numberValue(
+    item.line_total,
+    item.line_total_snapshot,
+    item.total,
+    item.amount
+  );
+
+  if (directTotal > 0) {
+    return directTotal;
+  }
 
   return (
-    <div className="text-center mb-5 pb-4 border-b-2 border-gray-800">
-      <h1 className="text-3xl font-bold tracking-wide">{name}</h1>
-      {address && <p className="text-sm text-gray-600 mt-1">{address}</p>}
-      {gst && <p className="text-sm text-gray-600">GSTIN: {gst}</p>}
-      <p className="text-lg font-semibold mt-2">TAX INVOICE</p>
+    getUnitPrice(item) *
+    getQuantity(item)
+  );
+}
+
+function getInvoiceItems(invoice, items) {
+  if (Array.isArray(items) && items.length) {
+    return items;
+  }
+
+  if (
+    Array.isArray(invoice?.invoice_items) &&
+    invoice.invoice_items.length
+  ) {
+    return invoice.invoice_items;
+  }
+
+  return [];
+}
+
+function getGuestCount(invoice) {
+  return numberValue(
+    invoice?.guest_count,
+    invoice?.guest_count_snapshot,
+    1
+  );
+}
+
+function getKotNumber(invoice) {
+  return (
+    invoice?.kot_number ??
+    invoice?.kitchen_token_number ??
+    invoice?.kitchen_token_number_snapshot ??
+    '—'
+  );
+}
+
+function getOrderType(invoice) {
+  return (
+    invoice?.order_type ??
+    invoice?.order_type_snapshot ??
+    ''
+  );
+}
+
+function getTableNumber(invoice) {
+  return (
+    invoice?.table_number ??
+    invoice?.table_number_snapshot ??
+    ''
+  );
+}
+
+function getRoomNumber(invoice) {
+  return (
+    invoice?.room_number ??
+    invoice?.room_number_snapshot ??
+    ''
+  );
+}
+
+function getSubtotal(invoice, rows) {
+  const direct = numberValue(
+    invoice?.subtotal
+  );
+
+  if (direct > 0) {
+    return direct;
+  }
+
+  return rows.reduce(
+    (sum, item) =>
+      sum + getLineTotal(item),
+    0
+  );
+}
+
+function getDiscount(invoice) {
+  return numberValue(
+    invoice?.discount
+  );
+}
+
+function getTax(invoice) {
+  return (
+    numberValue(invoice?.cgst_amount) +
+    numberValue(invoice?.sgst_amount) +
+    numberValue(invoice?.igst_amount) +
+    numberValue(invoice?.other_tax_amount)
+  );
+}
+
+function getGrandTotal(
+  invoice,
+  subtotal,
+  discount,
+  tax
+) {
+  const direct = numberValue(
+    invoice?.grand_total,
+    invoice?.total
+  );
+
+  if (direct > 0) {
+    return direct;
+  }
+
+  return (
+    subtotal -
+    discount +
+    tax
+  );
+}
+
+/* =========================================================
+   HOTEL HEADER
+   ========================================================= */
+
+function InvoiceHeader({
+  invoice,
+  hotel,
+}) {
+  const name =
+    hotel?.hotel_name ||
+    invoice?.hotel_name ||
+    'RED CHILLI';
+
+  const address =
+    hotel?.address ||
+    invoice?.hotel_address ||
+    '';
+
+  const gst =
+    hotel?.gst_number ||
+    invoice?.hotel_gst ||
+    '';
+
+  return (
+    <div className="invoice-header">
+      <h1>{name}</h1>
+
+      {address && (
+        <p className="invoice-address">
+          {address}
+        </p>
+      )}
+
+      {gst && (
+        <p className="invoice-gst">
+          GSTIN: {gst}
+        </p>
+      )}
+
+      <p className="invoice-title">
+        TAX INVOICE
+      </p>
     </div>
   );
 }
 
-export default function InvoicePrint({ invoice, hotel, items = [] }) {
-  if (!invoice) return null;
-  const rows = items.length ? items : invoice.invoice_items || [];
+/* =========================================================
+   A4 INVOICE
+   ========================================================= */
+
+export default function InvoicePrint({
+  invoice,
+  hotel,
+  items = [],
+}) {
+  if (!invoice) {
+    return null;
+  }
+
+  const rows = getInvoiceItems(
+    invoice,
+    items
+  );
+
+  const subtotal = getSubtotal(
+    invoice,
+    rows
+  );
+
+  const discount =
+    getDiscount(invoice);
+
+  const cgst = numberValue(
+    invoice.cgst_amount
+  );
+
+  const sgst = numberValue(
+    invoice.sgst_amount
+  );
+
+  const igst = numberValue(
+    invoice.igst_amount
+  );
+
+  const otherTax = numberValue(
+    invoice.other_tax_amount
+  );
+
+  const tax =
+    cgst +
+    sgst +
+    igst +
+    otherTax;
+
+  const grandTotal =
+    getGrandTotal(
+      invoice,
+      subtotal,
+      discount,
+      tax
+    );
+
+  const orderType =
+    getOrderType(invoice);
+
+  const tableNumber =
+    getTableNumber(invoice);
+
+  const roomNumber =
+    getRoomNumber(invoice);
+
+  const guestCount =
+    getGuestCount(invoice);
+
+  const kotNumber =
+    getKotNumber(invoice);
 
   return (
-    <div className="a4-print bg-white text-black mx-auto">
-      <InvoiceHeader invoice={invoice} hotel={hotel} />
+    <div className="a4-print invoice-document">
 
-      <div className="grid grid-cols-2 gap-4 mb-5 text-sm">
-        <div className="space-y-1">
-          <p><b>Invoice No:</b> {invoice.invoice_number}</p>
-          <p><b>Order No:</b> {invoice.order_number || '—'}</p>
-          <p><b>KOT No:</b> #{String(invoice.kot_number ?? '—').padStart(3, '0')}</p>
+      <InvoiceHeader
+        invoice={invoice}
+        hotel={hotel}
+      />
+
+      {/* INFORMATION */}
+      <div className="invoice-info-grid">
+
+        <div className="invoice-info-left">
+          <p>
+            <b>Invoice No:</b>{' '}
+            {invoice.invoice_number ||
+              '—'}
+          </p>
+
+          <p>
+            <b>Order No:</b>{' '}
+            {invoice.order_number ||
+              '—'}
+          </p>
+
+          <p>
+            <b>KOT No:</b>{' '}
+            #
+            {String(kotNumber).padStart(
+              3,
+              '0'
+            )}
+          </p>
         </div>
-        <div className="space-y-1 text-right">
-          <p><b>Date:</b> {formatDateTime(invoice.created_at)}</p>
-          <p><b>Order Type:</b> {orderTypeLabel(invoice.order_type)}</p>
-          <p><b>{invoice.order_type === 'DINE_IN' ? 'Table' : invoice.order_type === 'ROOM_SERVICE' ? 'Room' : 'Mode'}:</b> {invoice.table_number || invoice.room_number || 'Takeaway'}</p>
-          <p><b>Guests:</b> {invoice.guest_count || 1}</p>
+
+        <div className="invoice-info-right">
+          <p>
+            <b>Date:</b>{' '}
+            {formatDateTime(
+              invoice.created_at
+            )}
+          </p>
+
+          <p>
+            <b>Order Type:</b>{' '}
+            {orderTypeLabel(
+              orderType
+            )}
+          </p>
+
+          <p>
+            <b>
+              {orderType ===
+              'DINE_IN'
+                ? 'Table'
+                : orderType ===
+                  'ROOM_SERVICE'
+                ? 'Room'
+                : 'Mode'}
+              :
+            </b>{' '}
+            {orderType ===
+            'DINE_IN'
+              ? tableNumber || '—'
+              : orderType ===
+                'ROOM_SERVICE'
+              ? roomNumber || '—'
+              : 'Takeaway'}
+          </p>
+
+          <p>
+            <b>Guests:</b>{' '}
+            {guestCount}
+          </p>
         </div>
       </div>
 
-      <table className="w-full border-collapse text-sm">
+      {/* ITEMS TABLE */}
+      <table className="invoice-table">
         <thead>
-          <tr className="bg-gray-100 border-2 border-gray-800">
-            <th className="text-left py-2 px-2">#</th>
-            <th className="text-left py-2 px-2">Item</th>
-            <th className="text-left py-2 px-2">Variant</th>
-            <th className="text-center py-2 px-2">Qty</th>
-            <th className="text-right py-2 px-2">Price</th>
-            <th className="text-right py-2 px-2">Total</th>
+          <tr>
+            <th className="col-number">
+              #
+            </th>
+
+            <th className="col-item">
+              Item
+            </th>
+
+            <th className="col-variant">
+              Variant
+            </th>
+
+            <th className="col-qty">
+              Qty
+            </th>
+
+            <th className="col-price">
+              Price
+            </th>
+
+            <th className="col-total">
+              Total
+            </th>
           </tr>
         </thead>
+
         <tbody>
-          {rows.map((item, index) => (
-            <tr key={item.id || index} className="border-b border-gray-300">
-              <td className="py-2 px-2">{index + 1}</td>
-              <td className="py-2 px-2 font-medium">{item.item_name}</td>
-              <td className="py-2 px-2 text-gray-600">{item.variant_name || '—'}</td>
-              <td className="py-2 px-2 text-center">{item.quantity}</td>
-              <td className="py-2 px-2 text-right">{formatCurrency(item.unit_price)}</td>
-              <td className="py-2 px-2 text-right font-medium">{formatCurrency(item.line_total)}</td>
+          {rows.map(
+            (item, index) => {
+              const quantity =
+                getQuantity(item);
+
+              const unitPrice =
+                getUnitPrice(item);
+
+              const lineTotal =
+                getLineTotal(item);
+
+              return (
+                <tr
+                  key={
+                    item.id ||
+                    `${getItemName(
+                      item
+                    )}-${index}`
+                  }
+                >
+                  <td className="col-number">
+                    {index + 1}
+                  </td>
+
+                  <td className="col-item item-name">
+                    {getItemName(item)}
+                  </td>
+
+                  <td className="col-variant">
+                    {getVariantName(
+                      item
+                    ) || '—'}
+                  </td>
+
+                  <td className="col-qty">
+                    {quantity}
+                  </td>
+
+                  <td className="col-price amount">
+                    {formatCurrency(
+                      unitPrice
+                    )}
+                  </td>
+
+                  <td className="col-total amount">
+                    {formatCurrency(
+                      lineTotal
+                    )}
+                  </td>
+                </tr>
+              );
+            }
+          )}
+
+          {!rows.length && (
+            <tr>
+              <td
+                colSpan="6"
+                className="empty-invoice-row"
+              >
+                No invoice items
+              </td>
             </tr>
-          ))}
+          )}
         </tbody>
       </table>
 
-      <div className="ml-auto w-80 mt-5 space-y-1 text-sm">
-        <Row label="Subtotal" value={invoice.subtotal} />
-        {invoice.discount > 0 && <Row label="Discount" value={-invoice.discount} />}
-        {invoice.cgst_amount > 0 && <Row label="CGST" value={invoice.cgst_amount} />}
-        {invoice.sgst_amount > 0 && <Row label="SGST" value={invoice.sgst_amount} />}
-        {invoice.igst_amount > 0 && <Row label="IGST" value={invoice.igst_amount} />}
-        {invoice.other_tax_amount > 0 && <Row label="Other Tax" value={invoice.other_tax_amount} />}
-        <div className="flex justify-between py-2 border-t-2 border-gray-800 text-lg font-bold">
-          <span>GRAND TOTAL</span>
-          <span>{formatCurrency(invoice.grand_total)}</span>
+      {/* TOTALS */}
+      <div className="invoice-totals">
+
+        <InvoiceRow
+          label="Subtotal"
+          value={subtotal}
+        />
+
+        {discount > 0 && (
+          <InvoiceRow
+            label="Discount"
+            value={-discount}
+            discount
+          />
+        )}
+
+        {cgst > 0 && (
+          <InvoiceRow
+            label="CGST"
+            value={cgst}
+          />
+        )}
+
+        {sgst > 0 && (
+          <InvoiceRow
+            label="SGST"
+            value={sgst}
+          />
+        )}
+
+        {igst > 0 && (
+          <InvoiceRow
+            label="IGST"
+            value={igst}
+          />
+        )}
+
+        {otherTax > 0 && (
+          <InvoiceRow
+            label="Other Tax"
+            value={otherTax}
+          />
+        )}
+
+        <div className="invoice-grand-total">
+          <span>
+            GRAND TOTAL
+          </span>
+
+          <span className="grand-total-amount">
+            {formatCurrency(
+              grandTotal
+            )}
+          </span>
         </div>
       </div>
 
-      <div className="mt-8 pt-4 border-t border-gray-300 text-center text-xs text-gray-500">
-        <p>Thank you for dining with us!</p>
-        <p className="mt-1">Computer-generated invoice.</p>
+      {/* FOOTER */}
+      <div className="invoice-footer">
+        <p>
+          Thank you for dining with
+          us!
+        </p>
+
+        <p>
+          Computer-generated
+          invoice.
+        </p>
       </div>
     </div>
   );
 }
 
-function Row({ label, value }) {
+/* =========================================================
+   A4 ROW
+   ========================================================= */
+
+function InvoiceRow({
+  label,
+  value,
+  discount = false,
+}) {
   return (
-    <div className="flex justify-between py-1">
-      <span>{label}</span>
-      <span>{formatCurrency(value)}</span>
+    <div className="invoice-row">
+      <span
+        className={
+          discount
+            ? 'discount-text'
+            : ''
+        }
+      >
+        {label}
+      </span>
+
+      <span
+        className={`invoice-row-amount ${
+          discount
+            ? 'discount-text'
+            : ''
+        }`}
+      >
+        {formatCurrency(value)}
+      </span>
     </div>
   );
 }
 
-export function InvoiceThermalPrint({ invoice, hotel, items = [] }) {
-  if (!invoice) return null;
-  const rows = items.length ? items : invoice.invoice_items || [];
-  const name = hotel?.hotel_name || invoice.hotel_name || 'RED CHILLI';
+/* =========================================================
+   80MM THERMAL INVOICE
+   ========================================================= */
+
+export function InvoiceThermalPrint({
+  invoice,
+  hotel,
+  items = [],
+}) {
+  if (!invoice) {
+    return null;
+  }
+
+  const rows = getInvoiceItems(
+    invoice,
+    items
+  );
+
+  const name =
+    hotel?.hotel_name ||
+    invoice?.hotel_name ||
+    'RED CHILLI';
+
+  const address =
+    hotel?.address ||
+    invoice?.hotel_address ||
+    '';
+
+  const gst =
+    hotel?.gst_number ||
+    invoice?.hotel_gst ||
+    '';
+
+  const subtotal = getSubtotal(
+    invoice,
+    rows
+  );
+
+  const discount =
+    getDiscount(invoice);
+
+  const cgst = numberValue(
+    invoice.cgst_amount
+  );
+
+  const sgst = numberValue(
+    invoice.sgst_amount
+  );
+
+  const igst = numberValue(
+    invoice.igst_amount
+  );
+
+  const otherTax = numberValue(
+    invoice.other_tax_amount
+  );
+
+  const tax =
+    cgst +
+    sgst +
+    igst +
+    otherTax;
+
+  const grandTotal =
+    getGrandTotal(
+      invoice,
+      subtotal,
+      discount,
+      tax
+    );
+
+  const orderType =
+    getOrderType(invoice);
 
   return (
-    <div className="thermal-print bg-white text-black mx-auto">
-      <div className="text-center border-b border-dashed border-gray-400 pb-2 mb-2">
-        <h1 className="font-bold text-sm">{name}</h1>
-        {hotel?.address && <p className="text-xs">{hotel.address}</p>}
-        {hotel?.gst_number && <p className="text-xs">GST: {hotel.gst_number}</p>}
-        <p className="font-semibold text-xs mt-1">TAX INVOICE</p>
-      </div>
+    <div className="thermal-print">
 
-      <div className="text-xs space-y-0.5 mb-2">
-        <div className="flex justify-between"><span>Invoice:</span><b>{invoice.invoice_number}</b></div>
-        <div className="flex justify-between"><span>Order:</span><span>{invoice.order_number || '—'}</span></div>
-        <div className="flex justify-between"><span>KOT:</span><span>#{String(invoice.kot_number ?? '—').padStart(3, '0')}</span></div>
-        <div className="flex justify-between"><span>Date:</span><span>{formatDateTime(invoice.created_at)}</span></div>
-        <div className="flex justify-between"><span>Type:</span><span>{orderTypeLabel(invoice.order_type)}</span></div>
-        {invoice.table_number && <div className="flex justify-between"><span>Table:</span><span>{invoice.table_number}</span></div>}
-        {invoice.room_number && <div className="flex justify-between"><span>Room:</span><span>{invoice.room_number}</span></div>}
-        <div className="flex justify-between"><span>Guests:</span><span>{invoice.guest_count || 1}</span></div>
-      </div>
+      {/* HEADER */}
+      <div className="thermal-header">
+        <div className="thermal-hotel-name">
+          {name}
+        </div>
 
-      <div className="border-t border-dashed border-gray-400 pt-2">
-        {rows.map((item, index) => (
-          <div key={item.id || index} className="text-xs py-0.5">
-            <div className="flex">
-              <span className="flex-1">{item.item_name}</span>
-              <span className="w-8 text-center">{item.quantity}</span>
-              <span className="w-16 text-right">{formatCurrency(item.line_total)}</span>
-            </div>
-            {item.variant_name && <div className="pl-2 text-gray-600">{item.variant_name}</div>}
+        {address && (
+          <div>
+            {address}
           </div>
-        ))}
+        )}
+
+        {gst && (
+          <div>
+            GSTIN: {gst}
+          </div>
+        )}
+
+        <div className="thermal-title">
+          TAX INVOICE
+        </div>
       </div>
 
-      <div className="border-t border-dashed border-gray-400 mt-2 pt-1 text-xs">
-        <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(invoice.subtotal)}</span></div>
-        {invoice.discount > 0 && <div className="flex justify-between"><span>Discount</span><span>-{formatCurrency(invoice.discount)}</span></div>}
-        {invoice.cgst_amount > 0 && <div className="flex justify-between"><span>CGST</span><span>{formatCurrency(invoice.cgst_amount)}</span></div>}
-        {invoice.sgst_amount > 0 && <div className="flex justify-between"><span>SGST</span><span>{formatCurrency(invoice.sgst_amount)}</span></div>}
-        {invoice.igst_amount > 0 && <div className="flex justify-between"><span>IGST</span><span>{formatCurrency(invoice.igst_amount)}</span></div>}
-        {invoice.other_tax_amount > 0 && <div className="flex justify-between"><span>Other Tax</span><span>{formatCurrency(invoice.other_tax_amount)}</span></div>}
-        <div className="flex justify-between font-bold text-sm border-t border-gray-800 pt-1 mt-1">
-          <span>TOTAL</span><span>{formatCurrency(invoice.grand_total)}</span>
+      {/* META */}
+      <div className="thermal-meta">
+
+        <div>
+          <span>
+            Invoice:
+          </span>
+
+          <b>
+            {invoice.invoice_number ||
+              '—'}
+          </b>
+        </div>
+
+        <div>
+          <span>
+            Order:
+          </span>
+
+          <span>
+            {invoice.order_number ||
+              '—'}
+          </span>
+        </div>
+
+        <div>
+          <span>
+            KOT:
+          </span>
+
+          <span>
+            #
+            {String(
+              getKotNumber(invoice)
+            ).padStart(
+              3,
+              '0'
+            )}
+          </span>
+        </div>
+
+        <div>
+          <span>
+            Date:
+          </span>
+
+          <span>
+            {formatDateTime(
+              invoice.created_at
+            )}
+          </span>
+        </div>
+
+        <div>
+          <span>
+            Type:
+          </span>
+
+          <span>
+            {orderTypeLabel(
+              orderType
+            )}
+          </span>
+        </div>
+
+        {orderType ===
+          'DINE_IN' &&
+          getTableNumber(
+            invoice
+          ) && (
+            <div>
+              <span>
+                Table:
+              </span>
+
+              <span>
+                {getTableNumber(
+                  invoice
+                )}
+              </span>
+            </div>
+          )}
+
+        {orderType ===
+          'ROOM_SERVICE' &&
+          getRoomNumber(
+            invoice
+          ) && (
+            <div>
+              <span>
+                Room:
+              </span>
+
+              <span>
+                {getRoomNumber(
+                  invoice
+                )}
+              </span>
+            </div>
+          )}
+
+        <div>
+          <span>
+            Guests:
+          </span>
+
+          <span>
+            {getGuestCount(
+              invoice
+            )}
+          </span>
+        </div>
+      </div>
+
+      {/* ITEM HEADER */}
+      <div className="thermal-item-header">
+        <span>ITEM</span>
+        <span>QTY</span>
+        <span>AMOUNT</span>
+      </div>
+
+      {/* ITEMS */}
+      <div className="thermal-items">
+
+        {rows.map(
+          (item, index) => {
+            const quantity =
+              getQuantity(item);
+
+            const lineTotal =
+              getLineTotal(item);
+
+            return (
+              <div
+                key={
+                  item.id ||
+                  index
+                }
+                className="thermal-item"
+              >
+                <div className="thermal-item-main">
+                  <span className="thermal-item-name">
+                    {getItemName(
+                      item
+                    )}
+                  </span>
+
+                  <span className="thermal-qty">
+                    {quantity}
+                  </span>
+
+                  <span className="thermal-amount">
+                    {formatCurrency(
+                      lineTotal
+                    )}
+                  </span>
+                </div>
+
+                {getVariantName(
+                  item
+                ) && (
+                  <div className="thermal-variant">
+                    {getVariantName(
+                      item
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          }
+        )}
+      </div>
+
+      {/* TOTALS */}
+      <div className="thermal-totals">
+
+        <div className="thermal-row">
+          <span>
+            Subtotal
+          </span>
+
+          <span>
+            {formatCurrency(
+              subtotal
+            )}
+          </span>
+        </div>
+
+        {discount > 0 && (
+          <div className="thermal-row">
+            <span>
+              Discount
+            </span>
+
+            <span>
+              -
+              {formatCurrency(
+                discount
+              )}
+            </span>
+          </div>
+        )}
+
+        {cgst > 0 && (
+          <div className="thermal-row">
+            <span>CGST</span>
+
+            <span>
+              {formatCurrency(cgst)}
+            </span>
+          </div>
+        )}
+
+        {sgst > 0 && (
+          <div className="thermal-row">
+            <span>SGST</span>
+
+            <span>
+              {formatCurrency(sgst)}
+            </span>
+          </div>
+        )}
+
+        {igst > 0 && (
+          <div className="thermal-row">
+            <span>IGST</span>
+
+            <span>
+              {formatCurrency(igst)}
+            </span>
+          </div>
+        )}
+
+        {otherTax > 0 && (
+          <div className="thermal-row">
+            <span>
+              Other Tax
+            </span>
+
+            <span>
+              {formatCurrency(
+                otherTax
+              )}
+            </span>
+          </div>
+        )}
+
+        <div className="thermal-grand-total">
+          <span>TOTAL</span>
+
+          <span>
+            {formatCurrency(
+              grandTotal
+            )}
+          </span>
+        </div>
+      </div>
+
+      {/* FOOTER */}
+      <div className="thermal-footer">
+        <div>
+          Thank you for dining
+          with us!
+        </div>
+
+        <div>
+          Computer-generated
+          invoice.
         </div>
       </div>
     </div>
